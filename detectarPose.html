@@ -2,177 +2,133 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Detección de Pose con BlazePose</title>
-  <!-- TensorFlow.js -->
+  <title>Pose con BlazePose</title>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-
-  <!-- MediaPipe Pose -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
-
-  <!-- Pose Detection API -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
 
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-    }
-    video, canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      transform: scaleX(-1); /* Efecto espejo */
-    }
-    #captura {
-      position: absolute;
-      top: 0;
-      left: 650px;
-      border: 2px solid black;
-    }
-  </style>
+<style>
+  body {
+    font-family: 'Poppins', sans-serif;
+    background: linear-gradient(to right, #fce3ec, #ffe6f0);
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  video, canvas {
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+  }
+
+  #captura, #captura2 {
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    width: 320px;
+    height: auto;
+    margin: 10px;
+  }
+
+  #contador {
+    font-size: 60px;
+    font-weight: bold;
+    color: #ff4d6d;
+    margin-bottom: 20px;
+    display: none;
+  }
+
+  button {
+    background-color: #ff6b81;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    margin: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background-color 0.3s ease;
+  }
+
+  button:hover {
+    background-color: #ff4d6d;
+  }
+
+  .capturas {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* Video con espejo */
+  video {
+    transform: scaleX(-1); /* Espejo horizontal */
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    width: 640px; /* Ajustamos el tamaño del video */
+    height: 480px;
+    position: relative; /* Necesario para poner el canvas encima */
+  }
+
+  /* Canvas sobre el video */
+  canvas {
+    transform: scaleX(-1); /* Espejo en el canvas */
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 640px;
+    height: 480px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+</style>
+
+
 </head>
 <body>
+    <div id="contador"></div>
+    <video id="video" width="640" height="480" autoplay muted></video>
+    <canvas id="canvas" width="640" height="480" style="display: none;"></canvas>
+    
+    <div class="capturas">
+      <img id="captura" alt="Captura 1">
+      <img id="captura2" alt="Captura 2">
+    </div>
 
-<video id="video" width="640" height="480" autoplay muted playsinline></video>
-<canvas id="canvas" width="640" height="480"></canvas>
-<br>
-<img id="captura" />
+    <button id="btnReiniciar" style="display: none;">Reiniciar</button>
+    
 
-<!-- BOTONES -->
-<button onclick="capturarImagen()">Capturar imagen</button>
-<!-- NUEVO BOTÓN para capturar otra imagen -->
-<button id="btnCapturarOtra" style="display:none;">Capturar otra</button>
-
-<!-- IMÁGENES -->
-<img id="captura" width="320" height="240" />
-<!-- NUEVA IMAGEN -->
-<img id="captura2" width="320" height="240" />
-
+<button id="btnCapturarOtra" style="display:none;" onclick="capturarOtraImagen()">Capturar de nuevo</button>
+<button id="btnReiniciar" style="display:none;" onclick="reiniciarCapturas()">Reiniciar</button>
 
 <script>
   const video = document.getElementById('video');
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
-  let detector; // Variable global
+  const img1 = document.getElementById('captura');
+  const img2 = document.getElementById('captura2');
+  const btnOtra = document.getElementById('btnCapturarOtra');
+  const btnReiniciar = document.getElementById('btnReiniciar');
 
-  // Configurar la cámara
+  let detector;
+
   async function setupCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: { width: 640, height: 480 },
       audio: false
     });
     video.srcObject = stream;
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       video.onloadedmetadata = () => resolve(video);
     });
   }
 
-  // Dibujar puntos clave
-  function drawKeypoints(keypoints) {
-    keypoints.forEach(keypoint => {
-      const { x, y, score } = keypoint;
-      if (score > 0.5) {
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, 2 * Math.PI);
-        ctx.fillStyle = 'red';
-        ctx.fill();
-      }
-    });
-  }
-
-  // Dibujar esqueleto
-  function drawSkeleton(keypoints) {
-    const adjacentPairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
-    adjacentPairs.forEach(([i, j]) => {
-      const kp1 = keypoints[i];
-      const kp2 = keypoints[j];
-      if (kp1.score > 0.5 && kp2.score > 0.5) {
-        ctx.beginPath();
-        ctx.moveTo(kp1.x, kp1.y);
-        ctx.lineTo(kp2.x, kp2.y);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = 'blue';
-        ctx.stroke();
-      }
-    });
-  }
-
-  // Capturar imagen con fondo oscuro y pose
-  function capturarImagen() {
-    if (!detector) {
-      console.warn("Detector aún no está listo");
-      return;
-    }
-
-    const tempCanvas = document.createElement('canvas');
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCanvas.width = canvas.width;
-    tempCanvas.height = canvas.height;
-
-    detector.estimatePoses(video).then(poses => {
-      tempCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-      tempCtx.save();
-      tempCtx.scale(-1, 1);
-      tempCtx.drawImage(video, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
-      tempCtx.restore();
-
-      if (poses.length > 0) {
-        const keypoints = poses[0].keypoints;
-        drawKeypointsToContext(tempCtx, keypoints);
-        drawSkeletonToContext(tempCtx, keypoints);
-      }
-
-      const dataURL = tempCanvas.toDataURL();
-      document.getElementById('captura').src = dataURL;
-      console.log("mostrando boton 'capturar imagen'")
-      document.getElementById('btnCapturarOtra').style.display = 'inline';
-    });
-    
-}
-
-
-
-  function capturarOtraImagen() {
-  if (!detector) {
-    console.warn("Detector aún no está listo");
-    return;
-  }
-
-  const tempCanvas = document.createElement('canvas');
-  const tempCtx = tempCanvas.getContext('2d');
-  tempCanvas.width = canvas.width;
-  tempCanvas.height = canvas.height;
-
-  detector.estimatePoses(video).then(poses => {
-    tempCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-    tempCtx.save();
-    tempCtx.scale(-1, 1);
-    tempCtx.drawImage(video, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
-    tempCtx.restore();
-
-    if (poses.length > 0) {
-      const keypoints = poses[0].keypoints;
-      drawKeypointsToContext(tempCtx, keypoints);
-      drawSkeletonToContext(tempCtx, keypoints);
-    }
-
-    const dataURL = tempCanvas.toDataURL();
-    document.getElementById('captura2').src = dataURL;
-  });
-  
-
-}
-
-
-
-
-
-
-  // Reutilizar funciones de dibujo en otro canvas
-  function drawKeypointsToContext(context, keypoints) {
+  function drawKeypoints(context, keypoints) {
     keypoints.forEach(({ x, y, score }) => {
       if (score > 0.5) {
         context.beginPath();
@@ -183,7 +139,7 @@
     });
   }
 
-  function drawSkeletonToContext(context, keypoints) {
+  function drawSkeleton(context, keypoints) {
     const adjacentPairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
     adjacentPairs.forEach(([i, j]) => {
       const kp1 = keypoints[i];
@@ -199,7 +155,73 @@
     });
   }
 
-  // Función principal
+  async function capturarImagen(destino) {
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = video.videoWidth;
+    tempCanvas.height = video.videoHeight;
+
+    // Espejo: invertir horizontalmente
+    tempCtx.translate(tempCanvas.width, 0);
+    tempCtx.scale(-1, 1);
+    tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+
+    const poses = await detector.estimatePoses(video);
+    if (poses.length > 0) {
+      const keypoints = poses[0].keypoints;
+      drawKeypoints(tempCtx, keypoints);
+      drawSkeleton(tempCtx, keypoints);
+    }
+
+    const dataURL = tempCanvas.toDataURL();
+    destino.src = dataURL;
+  }
+  
+  function mostrarCuentaRegresiva(segundos, callback) {
+  const contador = document.getElementById('contador');
+  contador.style.display = 'block';
+  contador.textContent = segundos;
+
+  const intervalo = setInterval(() => {
+    segundos--;
+    if (segundos > 0) {
+      contador.textContent = segundos;
+    } else {
+      clearInterval(intervalo);
+      contador.style.display = 'none';
+      callback(); // Ejecuta lo que venga después (ej: capturar imagen)
+    }
+  }, 1000);
+}
+
+  async function capturarImagenInicial() {
+    await capturarImagen(img1);
+    btnOtra.style.display = 'inline';
+  }
+
+  async function capturarOtraImagen() {
+    await capturarImagen(img2);
+    btnOtra.style.display = 'none';
+    btnReiniciar.style.display = 'inline';
+  }
+
+  function iniciarCapturaAutomatica() {
+  mostrarCuentaRegresiva(5, async () => {
+    await capturarImagen(img1);
+    mostrarCuentaRegresiva(5, async () => {
+      await capturarImagen(img2);
+      btnReiniciar.style.display = 'inline';
+    });
+  });
+}
+
+function reiniciarCapturas() {
+  img1.src = "";
+  img2.src = "";
+  btnReiniciar.style.display = "none";
+  iniciarCapturaAutomatica(); // Vuelve a empezar con las cuentas regresivas
+}
+
   async function main() {
     await setupCamera();
     video.play();
@@ -212,29 +234,42 @@
 
     detector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, detectorConfig);
 
-     // Esperar 4 segundos y capturar la imagen después de que el detector está listo
-    setTimeout(() => {
-        capturarImagen();
-    }, 4000);
+    iniciarCapturaAutomatica();
 
     async function render() {
-      const poses = await detector.estimatePoses(video);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (poses.length > 0) {
-        const keypoints = poses[0].keypoints;
-        drawKeypoints(keypoints);
-        drawSkeleton(keypoints);
-      }
-      requestAnimationFrame(render);
-    }
+  const poses = await detector.estimatePoses(video);
+  
+  // Limpiar el canvas antes de redibujar
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Espejo en el video (ya reflejado por CSS en el video)
+  ctx.save();
+  ctx.scale(-1, 1);  // Esto refleja el canvas horizontalmente
+  ctx.translate(-canvas.width, 0);  // Necesario para que el efecto se vea bien
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.restore();
+
+  if (poses.length > 0) {
+    const keypoints = poses[0].keypoints;
+
+    // Reflejar coordenadas de los puntos
+    const mirroredKeypoints = keypoints.map(kp => ({
+      ...kp,
+      x: canvas.width - kp.x // Invertimos horizontalmente las coordenadas
+    }));
+
+    // Dibujar los puntos en el canvas sobre el video
+    drawKeypoints(ctx, mirroredKeypoints);
+    drawSkeleton(ctx, mirroredKeypoints);
+  }
+
+  requestAnimationFrame(render);
+}
 
     render();
   }
-  
+
   main();
-
 </script>
-
 </body>
 </html>
-
