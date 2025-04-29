@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Detección de Pose con BlazePose</title>
+  <!-- TensorFlow.js -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+
+  <!-- MediaPipe Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose"></script>
+
+  <!-- Pose Detection API -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+    }
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform: scaleX(-1); /* Efecto espejo */
+    }
+    #captura {
+      position: absolute;
+      top: 0;
+      left: 650px;
+      border: 2px solid black;
+    }
+  </style>
+</head>
+<body>
+
+<video id="video" width="640" height="480" autoplay muted playsinline></video>
+<canvas id="canvas" width="640" height="480"></canvas>
+<br>
+<button onclick="capturarImagen()">Capturar imagen</button>
+<img id="captura" width="320" height="240" />
+
+
+<script>
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  let detector; // Variable global
+
+  // Configurar la cámara
+  async function setupCamera() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480 },
+      audio: false
+    });
+    video.srcObject = stream;
+    return new Promise((resolve) => {
+      video.onloadedmetadata = () => resolve(video);
+    });
+  }
+
+  // Dibujar puntos clave
+  function drawKeypoints(keypoints) {
+    keypoints.forEach(keypoint => {
+      const { x, y, score } = keypoint;
+      if (score > 0.5) {
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = 'red';
+        ctx.fill();
+      }
+    });
+  }
+
+  // Dibujar esqueleto
+  function drawSkeleton(keypoints) {
+    const adjacentPairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
+    adjacentPairs.forEach(([i, j]) => {
+      const kp1 = keypoints[i];
+      const kp2 = keypoints[j];
+      if (kp1.score > 0.5 && kp2.score > 0.5) {
+        ctx.beginPath();
+        ctx.moveTo(kp1.x, kp1.y);
+        ctx.lineTo(kp2.x, kp2.y);
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'blue';
+        ctx.stroke();
+      }
+    });
+  }
+
+  // Capturar imagen con fondo oscuro y pose
+  function capturarImagen() {
+    if (!detector) {
+      console.warn("Detector aún no está listo");
+      return;
+    }
+
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+
+    detector.estimatePoses(video).then(poses => {
+      tempCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+      tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+      tempCtx.save();
+      tempCtx.scale(-1, 1);
+      tempCtx.drawImage(video, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
+      tempCtx.restore();
+
+      if (poses.length > 0) {
+        const keypoints = poses[0].keypoints;
+        drawKeypointsToContext(tempCtx, keypoints);
+        drawSkeletonToContext(tempCtx, keypoints);
+      }
+
+      const dataURL = tempCanvas.toDataURL();
+      document.getElementById('captura').src = dataURL;
+    });
+  }
+
+  // Reutilizar funciones de dibujo en otro canvas
+  function drawKeypointsToContext(context, keypoints) {
+    keypoints.forEach(({ x, y, score }) => {
+      if (score > 0.5) {
+        context.beginPath();
+        context.arc(x, y, 5, 0, 2 * Math.PI);
+        context.fillStyle = 'red';
+        context.fill();
+      }
+    });
+  }
+
+  function drawSkeletonToContext(context, keypoints) {
+    const adjacentPairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.BlazePose);
+    adjacentPairs.forEach(([i, j]) => {
+      const kp1 = keypoints[i];
+      const kp2 = keypoints[j];
+      if (kp1.score > 0.5 && kp2.score > 0.5) {
+        context.beginPath();
+        context.moveTo(kp1.x, kp1.y);
+        context.lineTo(kp2.x, kp2.y);
+        context.lineWidth = 2;
+        context.strokeStyle = 'blue';
+        context.stroke();
+      }
+    });
+  }
+
+  // Función principal
+  async function main() {
+    await setupCamera();
+    video.play();
+
+    const detectorConfig = {
+      runtime: 'mediapipe',
+      modelType: 'full',
+      solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/pose'
+    };
+
+    detector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, detectorConfig);
+
+    async function render() {
+      const poses = await detector.estimatePoses(video);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (poses.length > 0) {
+        const keypoints = poses[0].keypoints;
+        drawKeypoints(keypoints);
+        drawSkeleton(keypoints);
+      }
+      requestAnimationFrame(render);
+    }
+
+    render();
+  }
+  
+  main();
+
+  setTimeout(() => {capturarImagen();}, 4000); // 8000 milisegundos = 5 segundos
+</script>
+
+</body>
+</html>
+
