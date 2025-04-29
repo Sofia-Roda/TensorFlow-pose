@@ -37,8 +37,17 @@
 <video id="video" width="640" height="480" autoplay muted playsinline></video>
 <canvas id="canvas" width="640" height="480"></canvas>
 <br>
+<img id="captura" />
+
+<!-- BOTONES -->
 <button onclick="capturarImagen()">Capturar imagen</button>
+<!-- NUEVO BOTÓN para capturar otra imagen -->
+<button id="btnCapturarOtra" style="display:none;">Capturar otra</button>
+
+<!-- IMÁGENES -->
 <img id="captura" width="320" height="240" />
+<!-- NUEVA IMAGEN -->
+<img id="captura2" width="320" height="240" />
 
 
 <script>
@@ -117,8 +126,50 @@
 
       const dataURL = tempCanvas.toDataURL();
       document.getElementById('captura').src = dataURL;
+      console.log("mostrando boton 'capturar imagen'")
+      document.getElementById('btnCapturarOtra').style.display = 'inline';
     });
+    
+}
+
+
+
+  function capturarOtraImagen() {
+  if (!detector) {
+    console.warn("Detector aún no está listo");
+    return;
   }
+
+  const tempCanvas = document.createElement('canvas');
+  const tempCtx = tempCanvas.getContext('2d');
+  tempCanvas.width = canvas.width;
+  tempCanvas.height = canvas.height;
+
+  detector.estimatePoses(video).then(poses => {
+    tempCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    tempCtx.save();
+    tempCtx.scale(-1, 1);
+    tempCtx.drawImage(video, -tempCanvas.width, 0, tempCanvas.width, tempCanvas.height);
+    tempCtx.restore();
+
+    if (poses.length > 0) {
+      const keypoints = poses[0].keypoints;
+      drawKeypointsToContext(tempCtx, keypoints);
+      drawSkeletonToContext(tempCtx, keypoints);
+    }
+
+    const dataURL = tempCanvas.toDataURL();
+    document.getElementById('captura2').src = dataURL;
+  });
+  
+
+}
+
+
+
+
+
 
   // Reutilizar funciones de dibujo en otro canvas
   function drawKeypointsToContext(context, keypoints) {
@@ -161,6 +212,11 @@
 
     detector = await poseDetection.createDetector(poseDetection.SupportedModels.BlazePose, detectorConfig);
 
+     // Esperar 4 segundos y capturar la imagen después de que el detector está listo
+    setTimeout(() => {
+        capturarImagen();
+    }, 4000);
+
     async function render() {
       const poses = await detector.estimatePoses(video);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -177,7 +233,6 @@
   
   main();
 
-  setTimeout(() => {capturarImagen();}, 4000); // 8000 milisegundos = 5 segundos
 </script>
 
 </body>
